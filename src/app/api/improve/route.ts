@@ -49,7 +49,9 @@ export async function POST(req: Request) {    const { tweet, result, improveProm
     ☑ Length under 270 chars
     ☑ No emojis/hashtags
 
-    Refined version (ONLY OUTPUT THIS):`    try {
+    Refined version (ONLY OUTPUT THIS):`
+
+    try {
         // Use the model specified in environment variables
         const modelName = process.env.AI_MODEL || "gemini-1.0-pro";
         let text;
