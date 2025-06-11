@@ -4,7 +4,12 @@ import { GoogleGenerativeAI, HarmCategory, HarmBlockThreshold } from '@google/ge
 export const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY as string);
 
 // Helper function to retry API calls with exponential backoff when rate limits are hit
-export async function generateWithRetry(model: any, prompt: string, maxRetries = 3) {
+export async function generateWithRetry(
+  // Fix the type to avoid ESLint any error
+  model: ReturnType<typeof genAI.getGenerativeModel>,
+  prompt: string,
+  maxRetries = 3
+) {
   let retries = 0;
   let delay = 1000; // Start with a 1-second delay
   
@@ -44,10 +49,16 @@ export async function generateWithRetry(model: any, prompt: string, maxRetries =
         generationConfig,
         safetySettings,
       });
-      return result;
-    } catch (error: any) {
+      return result;    } catch (error: unknown) {
       // Check if the error is a rate limit error (429)
-      if (error.message && error.message.includes('429') && retries < maxRetries - 1) {
+      if (
+        typeof error === 'object' && 
+        error !== null && 
+        'message' in error && 
+        typeof error.message === 'string' && 
+        error.message.includes('429') && 
+        retries < maxRetries - 1
+      ) {
         console.log(`Rate limit hit. Retrying in ${delay / 1000} seconds...`);
         await new Promise(resolve => setTimeout(resolve, delay));
         retries++;

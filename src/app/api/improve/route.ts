@@ -1,11 +1,9 @@
 import { genAI, generateWithRetry } from '@/lib/genAI';
-import { getServerSession } from 'next-auth';
 import { NextResponse } from 'next/server';
-import { authOptions } from '../auth/[...nextauth]/options';
-import { prisma } from '@/lib/prisma';
+// Removed unused imports: getServerSession, authOptions, prisma
 
 export async function POST(req: Request) {    const { tweet, result, improvePrompt } = await req.json();
-    const session = await getServerSession(authOptions);
+    // Removed session variable since it's not being used
     // Removed IP tracking and credit limit checks - allowing unlimited use
 
     const prompt = `You are a tweet EDITOR executing specific user-requested changes. Follow these rules:
