@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "prisma generate && next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "list-models": "node scripts/list-models.js"
   },
   "dependencies": {
     "@ai-sdk/google": "^1.0.15",
@@ -25,6 +26,7 @@
     "axios": "^1.7.9",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "dotenv": "^17.2.3",
     "lucide-react": "^0.471.2",
     "motion": "^11.18.1",
     "next": "15.1.4",

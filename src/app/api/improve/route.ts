@@ -50,28 +50,57 @@ export async function POST(req: Request) {    const { tweet, result, improveProm
     Refined version (ONLY OUTPUT THIS):`
 
     try {
-        // Use the model specified in environment variables
-        const modelName = process.env.AI_MODEL || "gemini-1.0-pro";
-        let text;
-        try {
-            const model = genAI.getGenerativeModel({ model: modelName });
-            const res = await generateWithRetry(model, prompt);
-            text = res.response.text();
-        } catch (modelError) {
-            console.error("Model error:", modelError);
-            // Fallback to gemini-1.0-pro if the specified model fails
-            if (modelName !== "gemini-1.0-pro") {
-                const fallbackModel = genAI.getGenerativeModel({ model: "gemini-1.0-pro" });
-                try {
-                    const fallbackRes = await generateWithRetry(fallbackModel, prompt);
-                    text = fallbackRes.response.text();
-                } catch (fallbackError) {
-                    console.error("Fallback model error:", fallbackError);
-                    throw fallbackError;
+        // Prefer models that are cheaper / more generous with free tier. Allow overriding with AI_MODEL or AI_MODEL_PREFERENCES (comma-separated list)
+        const defaultPreferences = ['gemini-flash-lite-latest', 'gemini-2.5-flash-lite', 'gemini-2.5-flash', 'gemini-2.5-pro'];
+        const envPref = process.env.AI_MODEL_PREFERENCES || process.env.AI_MODEL || '';
+        const prefs = envPref ? envPref.split(',').map(s => s.replace(/^models\//, '').trim()).filter(Boolean) : defaultPreferences;
+
+        let text: string | undefined;
+        let lastError: unknown = null;
+
+        for (const candidate of prefs) {
+            try {
+                const model = genAI.getGenerativeModel({ model: candidate });
+                const result = await generateWithRetry(model, prompt);
+                text = result.response.text();
+                // Success - break out
+                break;
+            } catch (err) {
+                console.warn(`Model ${candidate} failed:`, err);
+                lastError = err;
+
+                const msg = typeof err === 'object' && err !== null && 'message' in err ? (err as any).message : String(err);
+
+                // If auth type unsupported, try REST query-param fallback (API key) for this candidate
+                if (msg && (msg.includes('401') || msg.includes('ACCESS_TOKEN_TYPE_UNSUPPORTED') || msg.toLowerCase().includes('invalid authentication'))) {
+                    try {
+                        const fallbackRes = await generateWithRetry(candidate, prompt);
+                        text = fallbackRes.response.text();
+                        break;
+                    } catch (fallbackErr) {
+                        console.warn(`REST fallback for ${candidate} failed:`, fallbackErr);
+                        lastError = fallbackErr;
+                        continue; // try next candidate
+                    }
                 }
-            } else {
-                throw modelError;
+
+                // If rate limit or quota (429) or model not found (404), try next candidate
+                if (msg && (msg.includes('429') || msg.includes('quota') || msg.includes('404') || msg.toLowerCase().includes('not found') || msg.toLowerCase().includes('resource_exhausted'))) {
+                    continue; // try next candidate
+                }
+
+                // Otherwise, it's an unexpected error - rethrow
+                throw err;
             }
+        }
+
+        if (!text) {
+            console.error('All model candidates failed. Last error:', lastError);
+            const message = lastError instanceof Error ? lastError.message : String(lastError ?? 'Unknown error');
+            return NextResponse.json(
+                { success: false, message: `Tweet refinement failed: ${message}` },
+                { status: 500 }
+            );
         }
 
         return NextResponse.json(
