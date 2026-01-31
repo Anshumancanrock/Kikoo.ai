@@ -67,37 +67,45 @@ export async function POST(req: Request) {    const { tweet, mood, action } = aw
         const envPref = process.env.AI_MODEL_PREFERENCES || process.env.AI_MODEL || '';
         const prefs = envPref ? envPref.split(',').map(s => s.replace(/^models\//, '').trim()).filter(Boolean) : defaultPreferences;
 
+        console.info('Model preferences for this request:', prefs);
+
         let text: string | undefined;
-        let lastError: unknown = null;
+        // store last error with candidate for better diagnostics
+        let lastError: { candidate?: string; err?: unknown } | null = null;
 
         for (const candidate of prefs) {
+            console.info(`Attempting model candidate: ${candidate}`);
             try {
                 const model = genAI.getGenerativeModel({ model: candidate });
                 const result = await generateWithRetry(model, prompt);
                 text = result.response.text();
+                console.info(`Model ${candidate} succeeded and was selected.`);
                 // Success - break out
                 break;
             } catch (err) {
                 console.warn(`Model ${candidate} failed:`, err);
-                lastError = err;
+                lastError = { candidate, err };
 
                 const msg = typeof err === 'object' && err !== null && 'message' in err ? (err as any).message : String(err);
 
                 // If auth type unsupported, try REST query-param fallback (API key) for this candidate
                 if (msg && (msg.includes('401') || msg.includes('ACCESS_TOKEN_TYPE_UNSUPPORTED') || msg.toLowerCase().includes('invalid authentication'))) {
+                    console.info(`Auth type unsupported for ${candidate}, trying REST query-param fallback.`);
                     try {
                         const fallbackResult = await generateWithRetry(candidate, prompt);
                         text = fallbackResult.response.text();
+                        console.info(`REST fallback for ${candidate} succeeded.`);
                         break;
                     } catch (fallbackErr) {
                         console.warn(`REST fallback for ${candidate} failed:`, fallbackErr);
-                        lastError = fallbackErr;
+                        lastError = { candidate, err: fallbackErr };
                         continue; // try next candidate
                     }
                 }
 
                 // If rate limit or quota (429) or model not found (404), try next candidate
                 if (msg && (msg.includes('429') || msg.includes('quota') || msg.includes('404') || msg.toLowerCase().includes('not found') || msg.toLowerCase().includes('resource_exhausted'))) {
+                    console.info(`Skipping ${candidate} due to quota/404/429.`);
                     continue; // try next candidate
                 }
 
@@ -107,10 +115,10 @@ export async function POST(req: Request) {    const { tweet, mood, action } = aw
         }
 
         if (!text) {
-            console.error('All model candidates failed. Last error:', lastError);
-            const message = lastError instanceof Error ? lastError.message : String(lastError ?? 'Unknown error');
+            console.error('All model candidates failed. Last attempt:', lastError);
+            const message = lastError && lastError.err instanceof Error ? lastError.err.message : String(lastError?.err ?? 'Unknown error');
             return NextResponse.json(
-                { success: false, message: `Tweet refinement failed: ${message}` },
+                { success: false, message: `Tweet refinement failed. Last attempted model: ${lastError?.candidate ?? 'none'}. Error: ${message}` },
                 { status: 500 }
             );
         }
